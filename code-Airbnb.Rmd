@@ -1,0 +1,1412 @@
+---
+title: "code-Airbnb"
+author: "Yuetong Yang"
+date: "12/20/2019"
+output: pdf_document
+---
+### scrape data from website
+```{r,echo=TRUE}
+library(XML)
+local_file <- "F:/Rscrape/advfn.html"
+get_table <- function(tickers) {
+  # temp <- data.frame(ncol=5)
+  # colnames(temp) <- c("avg_monthly_high", "avg_monthly_low",
+  #                     "avg_snow_rain","Days_with_precipitation",
+  #                     "Hr_of_sunshine")
+  temp = setNames(data.frame(matrix(ncol = 5, nrow = 0)), c("avg_monthly_high", "avg_monthly_low",
+                                                            "avg_snow_rain","Days_with_precipitation",
+                                                            "Hr_of_sunshine"))
+  ntickers <- length(tickers)
+  
+  for(ticker in 1:ntickers){
+    #ticker <- 2
+    url <- paste0("http://www.worldclimate.com/climate/us/",tickers[ticker])
+    download.file(url, destfile =local_file)
+    
+    doc <- htmlParse(local_file)
+    
+    # get table
+    node <- getNodeSet(doc, "table")
+    tbl<-readHTMLTable(url[1])[[1]]
+    
+    # merge table
+    tbl = t(tbl)
+    tbl = tbl[-1,]
+    temp = rbind(temp,tbl)
+    #temp = merge(temp,tbl)
+    write.csv(temp,"F:/Rscrape/temp.csv")
+  }
+  return(temp)
+}
+
+tickers <- c("alabama","connecticut","alaska","arizona","arkansas",
+             "california","colorado","connecticut","delaware","district-of-columbia",
+             "florida","georgia","hawaii","idaho","illinois","indiana",
+             "iowa","kansas",
+             "kentucky","louisiana","maine","maryland","massachusetts","michigan",
+             "minnesota","mississippi","missouri","montana","nebraska",
+             "nevada","new-hampshire","new-jersey",
+             "new-mexico","new-york","north-carolina","north-dakota","ohio",
+             "oklahoma","oregon","pennsylvania", "rhode-island","south-carolina",
+             "south-dakota","tennessee","texas","utah","vermont",
+             "virginia","washington","west-virginia",
+             "wisconsin","wyoming","alabama/birmingham","alaska/anchorage",
+             "arizona/phoenix",
+             "arkansas/fort-smith","california/berkeley","colorado/grand-junction",
+             "connecticut/stafford",
+             "delaware/georgetown","district-of-columbia/washington",
+             "florida/miami",
+             "georgia/atlanta","idaho/boise","illinois/chicago",
+             "indiana/indianapolis",
+             "iowa/des-moines","kansas/kansas-city","kentucky/louisville",
+             "louisiana/baton-rouge",
+             "maine/augusta","maryland/baltimore","massachusetts/boston",
+             "michigan/lansing",
+             "minnesota/saint-paul","mississippi/biloxi","missouri/kansas-city",
+             "montana/great-falls","nebraska/lincoln","nevada/las-vegas",
+             "new-hampshire/manchester","new-mexico/albuquerque",
+             "north-carolina/raleigh","north-dakota/fargo","ohio/columbus",
+             "oklahoma/oklahoma-city")
+get_table(tickers)
+```
+
+The data source:http://www.worldclimate.com/climate/us/
+
+We have scraped climate data of all us states and some popular tourism cities. The climate data we scaped included Monthly average high temperature,monthly average low temperature, average snow/rain, days with precipitation and hours of sunshine.
+
+Since our main source of data is about Airbnb's hotel orders' distribution, description and detail information of room types and price. Also climate factor will influence user's choice of traveling and booking hotels. With the exact climate and temperature data obtained from relaiable source, we can analyze which month tourists would like to travel  and whether tourist will choose a warm climate to travel around. Besides, whether climate will influence users' choices on airbnb's hotels or which hotel's amentity will attract more users in different climate.
+
+We get total 1032 rows of climate data from website.
+
+### load to database
+```{r,echo=TRUE}
+library(RSQLite)
+dcon <- dbConnect(SQLite(), dbname = "F:/google/RRproject.db")
+dbListTables(dcon)
+dbListFields(dcon, "Webclimate") 
+```
+
+### total number of the dataset
+```{r,echo=TRUE}
+res <- dbSendQuery(conn = dcon, "
+SELECT count(*)
+FROM webclimate;
+")
+mydf <- dbFetch(res, -1)
+dbClearResult(res)
+mydf
+```
+```{r,echo=TRUE}
+res <- dbSendQuery(conn = dcon, "
+SELECT *
+FROM webclimate
+where City = 'florida' ;
+")
+mydf <- dbFetch(res, -1)
+dbClearResult(res)
+head(mydf,n=6)
+
+```
+eg:
+We can select temperature easily to analyze price trend, orders time, maxium stay nights' relations with temperature changes.
+```{r}
+library(ggplot2)
+theme1 <- theme_bw()+
+theme(axis.text = element_text(size = 8, colour = "#6b3447"),
+axis.title = element_text(size = 10, colour = "#2f2f63"),
+legend.title = element_text(size = 8, colour = "#2f2f63"),
+legend.text = element_text(size = 8, colour = "#6b3447"),
+title = element_text(size = 12, colour = "#2f2f63"),
+axis.ticks = element_line(colour = "#6b3447"),
+plot.caption = element_text(size = 8, colour = "#2f2f63"),
+plot.subtitle = element_text(size = 10, colour = "#2f2f63"))
+cbPalette <- c("#CC79A7", "#D55E00", "#56B4E9", "#F0E442",
+"#009E73", "#0072B2", "#999999", "#E69F00")
+ggplot(data = mydf) +
+geom_bar(aes(x=Hightem),fill="#CC79A7")+
+theme1+
+theme(axis.text.x=element_text(angle=25,hjust = 1,size=10),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="High tem",y="florida",
+       title = "Florida monthly tem trend ")
+
+```
+```{r,include=FALSE}
+recom <- read.csv(file="D:/Rproject/recommandation.csv", header=TRUE, sep=",")
+library(RSQLite)
+dcon <- dbConnect(SQLite(), dbname = "F:/google/RRproject.db")
+library(dplyr)
+library(stringr)
+res <- dbSendQuery(conn = dcon, "
+SELECT SUM(substr(price, 2)) as totalprice,city
+from Europe 
+group by city
+having totalprice > 100000;
+")
+mydf <- dbFetch(res, -1)
+dbClearResult(res)
+```
+
+```{r,echo=FALSE}
+res <- dbSendQuery(conn = dcon, "
+SELECT distinct city
+from Europe;
+")
+mydf2 <- dbFetch(res, -1)
+dbClearResult(res)
+```
+
+
+
+```{r,echo=FALSE}
+library(ggplot2)
+theme1 <- theme_bw()+ 
+theme(axis.text = element_text(size = 8, colour = "#6b3447"),
+axis.title = element_text(size = 10, colour = "#2f2f63"),
+legend.title = element_text(size = 8, colour = "#2f2f63"),
+legend.text = element_text(size = 8, colour = "#6b3447"),
+title = element_text(size = 12, colour = "#2f2f63"),
+axis.ticks = element_line(colour = "#6b3447"),
+plot.caption = element_text(size = 8, colour = "#2f2f63"),
+plot.subtitle = element_text(size = 10, colour = "#2f2f63"))
+cbPalette <- c("#CC79A7", "#D55E00", "#56B4E9", "#F0E442",
+"#009E73", "#0072B2", "#999999", "#E69F00")
+
+```
+
+### The point plot of different cities' total price trend
+
+```{r}
+ggplot(mydf,aes(city,totalprice/100)) +
+geom_point(aes(col=city))+
+theme1+
+theme(axis.text.x=element_text(angle=45,hjust = 1,size=7),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="city",y="total price(hundreds)",
+       title = "price trend")
+
+```
+
+Since the price of data is obtained from already finished users' order and all data collected time is in 2019. Compute the total price of each hotels and group by cities. We can clearly see each city's airbnb revenue distribution.
+
+### Using grid to combine related plots into one visualization.
+#### Here we combine the price trend of different part location together, that is, combine the price trend of Europe,US and Others.
+
+```{r}
+res <- dbSendQuery(conn = dcon, "
+SELECT id, name, bedrooms, bathrooms, amenities, city, SUM(substr(price, 2)) as totalprice, SUM(maximum_nights), SUM(minimum_nights)
+from Europe
+where maximum_nights>365
+group by city
+having count(city)>300 ;
+")
+mydf1 <- dbFetch(res, -1)
+dbClearResult(res)
+```
+
+
+```{r}
+theme_set(theme_bw())  # pre-set the bw theme.
+a<-ggplot(mydf, aes(x=city, y=totalprice/100)) + 
+  geom_bar(stat="identity", width=0.8, fill="tomato3")+
+theme1+
+theme(axis.text.x=element_text(angle=45,hjust = 1,size=7),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="City in Europe1",y="Total price(hundreds dollars)",
+       title = "Price trend of home-stay")
+
+  
+```
+
+
+
+```{r}
+res <- dbSendQuery(conn = dcon, "
+SELECT SUM(substr(price, 2)) as totalprice,city
+from Europe2 
+group by city
+having totalprice > 140000;
+")
+mydf3 <- dbFetch(res, -1)
+dbClearResult(res)
+```
+```{r}
+theme_set(theme_bw())  # pre-set the bw theme.
+b<-ggplot(mydf3, aes(x=city, y=totalprice/100)) + 
+  geom_bar(stat="identity", width=0.8, fill="#999999")+
+theme1+
+theme(axis.text.x=element_text(angle=45,hjust = 1,size=7),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="City in Europe2",y="Total price(hundreds dollars)",
+       title = "Price trend of home-stay")
+```
+```{r}
+res <- dbSendQuery(conn = dcon, "
+SELECT SUM(substr(price, 2)) as totalprice,city
+from Europe3 
+group by city
+having totalprice > 100000;
+")
+mydf4 <- dbFetch(res, -1)
+dbClearResult(res)
+```
+
+```{r}
+theme_set(theme_bw())  # pre-set the bw theme.
+c<-ggplot(mydf4, aes(x=city, y=totalprice/100)) + 
+  geom_bar(stat="identity", width=0.8, fill="#F0E442")+
+theme1+
+theme(axis.text.x=element_text(angle=75,hjust = 1,size=10),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="City in Europe3",y="Total price(hundreds dollars)",
+       title = "Price trend of home-stay")
+```
+
+```{r}
+res <- dbSendQuery(conn = dcon, "
+SELECT SUM(substr(price, 2)) as totalprice,city
+from US1 
+group by city
+having totalprice > 100000;
+")
+mydf5 <- dbFetch(res, -1)
+dbClearResult(res)
+theme_set(theme_bw())  # pre-set the bw theme.
+d<-ggplot(mydf5, aes(x=city, y=totalprice/100)) + 
+  geom_bar(stat="identity", width=0.8, fill="#CC79A7")+
+theme1+
+theme(axis.text.x=element_text(angle=45,hjust = 1,size=7),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="City in US1",y="Total price(hundreds dollars)",
+       title = "Price trend of home-stay")
+```
+
+
+```{r}
+res <- dbSendQuery(conn = dcon, "
+SELECT SUM(substr(price, 2)) as totalprice,city
+from US2 
+group by city
+having totalprice > 100000;
+")
+mydf6 <- dbFetch(res, -1)
+dbClearResult(res)
+theme_set(theme_bw())  # pre-set the bw theme.
+f<-ggplot(mydf6, aes(x=city, y=totalprice/100)) + 
+  geom_bar(stat="identity", width=0.8, fill="#009E73")+
+theme1+
+theme(axis.text.x=element_text(angle=45,hjust = 1,size=10),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="City in US2",y="Total price(hundreds dollars)",
+       title = "Price trend of home-stay")
+```
+
+```{r}
+res <- dbSendQuery(conn = dcon, "
+SELECT SUM(substr(price, 2)) as totalprice,city
+from Others 
+group by city
+having totalprice > 130000;
+")
+mydf7 <- dbFetch(res, -1)
+dbClearResult(res)
+theme_set(theme_bw())  # pre-set the bw theme.
+g<-ggplot(mydf7, aes(x=city, y=totalprice/100)) + 
+  geom_bar(stat="identity", width=0.8, fill="#0072B2")+
+theme1+
+theme(axis.text.x=element_text(angle=45,hjust = 1,size=9),
+                               title=element_text(size=10),
+                              axis.title.x=element_text(size=10),
+                              axis.title.y=element_text(size=10),
+                              axis.text.y=element_text(size=10))+
+  labs(x="City in others",y="Total price(hundreds dollars)",
+       title = "Price trend of home-stay")
+```
+
+### Using grid to combine 6 plots.
+
+```{r}
+library(grid)
+library(gridBase)
+grid.newpage()
+pushViewport(viewport(layout=grid.layout(3,2)))
+print(a,vp = viewport(layout.pos.row=1,
+                      layout.pos.col=1))
+print(b,vp = viewport(layout.pos.row=1,
+                      layout.pos.col=2))
+print(c,vp = viewport(layout.pos.row=2,
+                      layout.pos.col=1))
+print(d,vp = viewport(layout.pos.row=2,
+                      layout.pos.col=2))
+print(f,vp = viewport(layout.pos.row=3,
+                      layout.pos.col=1))
+print(g,vp = viewport(layout.pos.row=3,
+                      layout.pos.col=2))
+```
+
+
+```{R,include=FALSE}
+library(gridExtra)
+library(ggplot2)
+library(grid)
+library(gridBase)
+```
+
+```{R}
+superhost <- read.csv(
+  "D:/Rproject/is_superhost.csv")
+```
+
+### Using grid to replace ggplot with version done from scratch.
+
+```{R,echo=TRUE}
+# histogram using grid
+barData <- superhost$host_response_time
+## create function
+bp <- function(barData) {
+  #nmeasures <- nrow(barData)
+  # (barData <- matrix(sample(1:5, 25, replace=TRUE), ncol = 5))
+  # (boxColors <- 1:5)
+  grid.newpage()
+  nbars <- length(unique(barData))
+  l1 <- length(superhost$host_response_time[which(superhost$host_response_time==0)])
+  l2 <- length(superhost$host_response_time[which(superhost$host_response_time==1)])
+  l3 <- length(superhost$host_response_time[which(superhost$host_response_time==2)])
+  l4 <- length(superhost$host_response_time[which(superhost$host_response_time==3)])
+  l5 <- length(superhost$host_response_time[which(superhost$host_response_time==4)])
+  barTotals <- c(l1,l2,l3,l4,l5)
+  barYscale <- c(0, max(barTotals) * 1.05)
+  pushViewport(plotViewport(c(5.1, 4.1, 4.1, 2.1),
+                            yscale=barYscale,
+                            layout=grid.layout(1, nbars)))
+  grid.rect()
+  grid.yaxis()
+  ## i <- 2
+  
+  for (i in 1:nbars) {
+    pushViewport(viewport(layout.pos.col = i,
+                          yscale = barYscale))
+    grid.rect(x = rep(0.5, nbars),
+              y = unit(0,"native"),
+              height =unit(barTotals[i],"native"),
+              width = 0.9, just = "bottom",
+              gp = gpar(fill = "orange"))
+    grid.text(i, y = unit(-1, "lines"))
+    popViewport()
+  }
+  popViewport()
+}
+bp(barData)
+# histogram using ggplot 
+h<-ggplot(superhost)+aes(x=host_response_time)+
+  geom_histogram(stat = 'count')+
+  ylab("Score")+
+  ggtitle("Plot of Since Response Time")+
+  theme_bw()
+b <- bp(barData)
+pushViewport(viewport(layout = grid.layout(2, 1)))
+print(b ,vp=viewport(layout.pos.row = 1, layout.pos.col = 1))
+print(h,vp= viewport(layout.pos.row = 2, layout.pos.col = 1))
+
+```
+
+## Map visualization
+```{r}
+# interactive map 
+suppressPackageStartupMessages(library(plotly))
+suppressPackageStartupMessages(library(sp))
+suppressPackageStartupMessages(library(sf))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggiraph))
+#install.packages("widgetframe")
+library(widgetframe)
+library(rbokeh)
+library(ggmap)
+library(flexdashboard)
+library(tidyverse) # metapackage with lots of helpful functions
+library(caret)
+library(ggmap)
+library(leaflet)
+#install.packages("plotly")
+library(plotly)
+library(DT)
+library(shiny)
+library(RColorBrewer)
+
+install.packages("remotes")
+remotes::install_github("hrbrmstr/albersusa")
+
+
+
+# plot of usa
+
+usa <- albersusa::usa_sf("laea")
+usd <- crosstalk::SharedData$new(usa)
+p <- ggplot(usd) + geom_sf(aes(fill = pop_2010))
+
+ggplotly(p) %>%
+  highlight(
+    "plotly_hover",
+    selected = attrs_selected(line = list(color = "black"))
+  ) %>%
+  widgetframe::frameWidget()
+
+#####
+library(maps)
+data(world.cities)
+library(rbokeh)
+caps <- dplyr::filter(world.cities, capital == 1)
+caps$population <- prettyNum(caps$pop, big.mark = ",")
+plot <- suppressWarnings(figure(width = 800, height = 450, padding_factor = 0) %>%
+                           ly_map("world", col = "gray") %>%
+                           ly_points(long, lat, data = caps, size = 5,
+                                     hover = c(name, country.etc, population)))
+
+widgetframe::frameWidget(plot,width=600,height=400)
+
+
+####
+
+l <- leaflet(data = loc_Amsterdam) %>%
+  setView(lat = 52.370216, lng = 4.895168, zoom=13) %>%
+  addTiles(group="OSM") %>%
+  addProviderTiles(providers$CartoDB.DarkMatter, group="Dark") %>%
+  addProviderTiles(providers$CartoDB.Positron, group="Light") %>%
+  addLayersControl(baseGroups=c('OSM','Dark','Light'))
+
+frameWidget(l)
+
+# install.packages("leaflet")
+# library(leaflet)
+l <- leaflet(data = loc_Amsterdam) %>% addTiles()%>%
+  addLabelOnlyMarkers(~longitude, ~latitude, label = ~(price_level),
+                      labelOptions = labelOptions(noHide = T, 
+                                                  direction = 'top', 
+                                                  textOnly = T)) %>%
+  setView(lat = 52.370216, lng = 4.895168, zoom=13) %>%
+  addTiles(group="OSM") %>%
+  addProviderTiles(providers$CartoDB.DarkMatter, group="Dark") %>%
+  addProviderTiles(providers$CartoDB.Positron, group="Light") %>%
+  addLayersControl(baseGroups=c('OSM','Dark','Light'))
+
+frameWidget(l)
+```
+
+## Map of price and map of size
+```{r,echo=TRUE}
+### 1. Amsterdam
+# read tourist attractions csv 
+tourist_attract <- read.csv("/Users/yuetongyang/Downloads/tourist_attractions.csv", header=TRUE)
+recommendition <- read.csv("/Users/yuetongyang/Desktop/R\ project/given\ weight\ top10.csv", header=TRUE)
+amsterdam_ta <- tourist_attract[which(tourist_attract$city ==	"Amsterdam"),]
+ams_ta_lon <- amsterdam_ta$Longitude
+ams_ta_lat <- amsterdam_ta$Latitude
+ams_rec <- recommendition[which(recommendition$city == "amsterdam"),]
+ams_rec_lon <- ams_rec$longitude
+ams_rec_lat <- ams_rec$latitude
+am_notexp =sub_Amsterdam[which(sub_Amsterdam$price_level ==	"Not Expensive"),]
+am_moderate =sub_Amsterdam[which(sub_Amsterdam$price_level ==	"Moderate"),]
+am_exp =sub_Amsterdam[which(sub_Amsterdam$price_level ==	"Expensive"),]
+am_deluxy = sub_Amsterdam[which(sub_Amsterdam$price_level ==	"Deluxy"),]
+
+### map plot of price_level 
+#class(ams_ta_lon)
+icons <- awesomeIcons(
+        icon = 'star',
+        iconColor = 'orange',
+        markerColor = "black",
+        library = 'fa'
+)
+icons1 <- awesomeIcons(
+        icon = 'circle',
+        iconColor = 'black',
+        markerColor = "red",
+        library = 'fa'
+)
+l_price <- leaflet(data = sub_Amsterdam) %>% 
+        addTiles()%>%
+        addAwesomeMarkers(lng=ams_rec_lon, lat=ams_rec_lat,icon = icons1) %>%
+        setView(lat = 52.370216, lng = 4.895168, zoom=13) %>%
+        addTiles(group="OSM")
+
+frameWidget(l_price)
+
+
+### 2.Barcelona
+
+l_price <- leaflet(data = sub_Barcelona) %>% 
+        addTiles()%>%
+         addAwesomeMarkers(lng=bar_rec_lon, lat=bar_rec_lat,icon = icons1) %>%
+        setView(lat = 41.3851, lng = 2.1734, zoom=13) %>%
+        addTiles(group="OSM") 
+
+frameWidget(l_price)
+
+
+### 3.Paris
+l_price <- leaflet(data = sub_Paris) %>% 
+        addTiles()%>%
+        addAwesomeMarkers(lng=par_rec_lon, lat=par_rec_lat,icon = icons1) %>%
+        setView(lat = 48.8566, lng = 2.3522, zoom=13) %>%
+        addTiles(group="OSM")
+
+frameWidget(l_price)
+
+
+### 4.NYC
+
+l_price <- leaflet(data = sub_NYC) %>% 
+        addTiles()%>%
+        addAwesomeMarkers(lng=nyc_rec_lon, lat=nyc_rec_lat,icon = icons1) %>%
+        setView(lat = 40.7128, lng = -74.0060, zoom=12) %>%
+        addTiles(group="OSM") 
+
+frameWidget(l_price)
+
+
+### 5.London
+l_price <- leaflet(data = sub_London) %>% 
+        addTiles()%>%
+        addAwesomeMarkers(lng=ld_rec_lon, lat=ld_rec_lat,icon = icons1) %>%
+        setView(lat = 51.5074, lng = 0.1278, zoom=13) %>%
+        addTiles(group="OSM") 
+frameWidget(l_price)
+
+### map of size of house
+ld_small =sub_London[which(sub_London$size ==	"small"),]
+ld_median =sub_London[which(sub_London$size ==	"median"),]
+ld_large =sub_London[which(sub_London$price_level ==	"large"),]
+
+l_size <- leaflet(data = sub_London) %>% 
+        addTiles()%>%
+        addCircleMarkers(~ld_small$longitude, ~ld_small$latitude, group = "Accommondates 2 people",
+                         color ="red") %>%
+        addCircleMarkers(~ld_median$longitude, ~ld_median$latitude, group = "Accommondates 3 to 4 people",
+                         color ="blue")%>%
+        addMarkers(~ld_large$longitude, ~ld_large$latitude, group = "Accommondates more than 4 people") %>%
+        addAwesomeMarkers(lng=ld_ta_lon, lat=ld_ta_lat,icon = icons) %>%
+        setView(lat = 51.5074, lng = 0.1278, zoom=13) %>%
+        addTiles(group="OSM") %>%
+        addLegend(values = 1, group = "Accommondates 2 people", position = "bottomleft", labels = "1", colors= "red") %>%
+        addLegend(values = 1, group = "Accommondates 3 to 4 people", position = "bottomleft", labels = "1" ,colors= "blue") %>% 
+        addLegend(values = 1, group = "Accommondates more than 4 people", position = "bottomleft", labels = "1" ,colors= "orange") %>% 
+        addLayersControl(overlayGroups = c("Accommondates 2 people","Accommondates 3 to 4 people", 
+                                           "Accommondates more than 4 people"),
+                         options = layersControlOptions(collapsed = FALSE)) 
+frameWidget(l_size)
+```
+
+### Recommendation
+
+```{r,echo=TRUE}
+library(geosphere)
+library(stringr)
+library(dplyr)
+barcelona <- read.csv("/Users/yuetongyang/Downloads/R project/Barcelona.csv",header = TRUE,stringsAsFactors=FALSE)
+barcelona.new <- select(barcelona,id,name,host_is_superhost,longitude,latitude,accommodates,amenities,price,cancellation_policy)
+
+## La Sagrada Familia : 41.4036° N, 2.1744° E
+lat1 <- 41.4036
+lon1 <- 2.1744
+barcelona.new$D1 <- numeric(length(barcelona.new$id))
+for (i in 1:length(barcelona.new$id)){
+  barcelona.new$D1[i] <- distm (c(lon1, lat1),c(barcelona.new$longitude[i],barcelona.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Park Güell :  41.4145° N, 2.1527° E
+lat1 <- 41.4145
+lon1 <- 2.1527
+barcelona.new$D2 <- numeric(length(barcelona.new$id))
+for (i in 1:length(barcelona.new$id)){
+  barcelona.new$D2[i] <- distm (c(lon1, lat1),c(barcelona.new$longitude[i],barcelona.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Casa Milà :41.3954° N, 2.1620° E
+lat1 <- 41.3954
+lon1 <- 2.1620
+barcelona.new$D3 <- numeric(length(barcelona.new$id))
+for (i in 1:length(barcelona.new$id)){
+  barcelona.new$D3[i] <- distm (c(lon1, lat1),c(barcelona.new$longitude[i],barcelona.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Casa Batlló 41.3917° N, 2.1649° E
+lat1 <- 41.3917
+lon1 <- 2.1649
+barcelona.new$D4 <- numeric(length(barcelona.new$id))
+for (i in 1:length(barcelona.new$id)){
+  barcelona.new$D4[i] <- distm (c(lon1, lat1),c(barcelona.new$longitude[i],barcelona.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Mercado de La Boqueria 41.3817° N, 2.1716° E
+lat1 <- 41.3817
+lon1 <- 2.1716
+barcelona.new$D5 <- numeric(length(barcelona.new$id))
+for (i in 1:length(barcelona.new$id)){
+  barcelona.new$D5[i] <- distm (c(lon1, lat1),c(barcelona.new$longitude[i],barcelona.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## calculate average distance
+## bound 1.5mile
+barcelona.new$average.d <- (barcelona.new$D1+barcelona.new$D2+barcelona.new$D3+barcelona.new$D4+barcelona.new$D5)/5
+barcelona.new$distance <- ifelse(barcelona.new$average.d<=1.5,1,0)
+
+## superhost
+barcelona.new$host_is_superhost <- ifelse(barcelona.new$host_is_superhost=="t",1,0)
+
+## standard length of amenities
+## longer better
+barcelona.new$amenities.length <- str_length(barcelona.new$amenities)
+Min <- min(barcelona.new$amenities.length)
+Max <- max(barcelona.new$amenities.length)
+barcelona.new$amenities.length.standard <- (barcelona.new$amenities.length-Min)/(Max-Min)
+
+## standard price
+## cheaper better
+barcelona.new$price <- as.numeric(gsub('[$,]', '', barcelona.new$price))
+Min.p <- min(barcelona.new$price)
+Max.p <- max(barcelona.new$price)
+barcelona.new$price.standard <- (Max.p-barcelona.new$price)/(Max.p-Min.p)
+## cancellation_policy
+## super_strict_60=1, super_strict_30=2, strict_14_with_grace_period=3,
+## moderate=4, flexible=5
+cancellation <- unique(barcelona.new$cancellation_policy)
+
+for (i in 1:length(barcelona.new$id)){
+  if (as.character(barcelona.new$cancellation_policy[i])=='super_strict_60'){
+    barcelona.new$cancellation[i] <- 1
+  }
+  if (as.character(barcelona.new$cancellation_policy[i])=='super_strict_30'){
+    barcelona.new$cancellation[i] <- 2
+  }
+  if (as.character(barcelona.new$cancellation_policy[i])=='strict_14_with_grace_period'){
+    barcelona.new$cancellation[i] <- 3
+  }
+  if (as.character(barcelona.new$cancellation_policy[i])=='strict'){
+    barcelona.new$cancellation[i] <- 4
+  }
+  if (as.character(barcelona.new$cancellation_policy[i])=='moderate'){
+    barcelona.new$cancellation[i] <- 5
+  }
+  if (as.character(barcelona.new$cancellation_policy[i])=='flexible'){
+    barcelona.new$cancellation[i] <- 6
+  }
+}
+
+## standard cancellation_policy
+## higher better
+unique(barcelona.new$cancellation_policy)
+barcelona.new$cancellation<-as.numeric(barcelona.new$cancellation)
+unique(barcelona.new$cancellation)
+Min.c <- min(barcelona.new$cancellation)
+Max.c <- max(barcelona.new$cancellation)
+barcelona.new$cancellation.standard <- (barcelona.new$cancellation-Min.c)/(Max.c-Min.c)
+
+## accommodates 
+unique(barcelona.new$accommodates)
+mean(barcelona.new$accommodates)
+median(barcelona.new$accommodates)
+## >3=0   <=3=1   different from each city  
+for (i in 1:length(barcelona.new$id)){
+  if (barcelona.new$accommodates[i]<=3){
+    barcelona.new$accommodates.stardand[i]=1
+  }
+  if (barcelona.new$accommodates[i]>3){
+    barcelona.new$accommodates.stardand[i]=0
+  }
+}
+
+
+## equal weight
+barcelona.new$equal.w <- (barcelona.new$host_is_superhost+barcelona.new$distance+
+                        barcelona.new$amenities.length.standard+barcelona.new$price.standard+
+                        barcelona.new$cancellation.standard+barcelona.new$accommodates.stardand)/6
+max(barcelona.new$equal.w)
+min(barcelona.new$equal.w)
+recommend.equal <- head(barcelona.new[order(barcelona.new$equal.w,decreasing=T),],10)
+
+cbind(recommend.equal$id,recommend.equal$longitude,recommend.equal$latitude,recommend.equal$name)
+
+## given weight, given by ourselves
+w1 <- 0.10  ## barcelona.new$host_is_superhost
+w2 <- 0.30  ## barcelona.new$distance
+w3 <- 0.25  ## barcelona.new$amenities.length.standard
+w4 <- 0.20 ## barcelona.new$price.standard
+w5 <- 0.10 ## barcelona.new$cancellation.standard
+w6 <- 0.05 ## barcelona.new$accommodates.stardand
+w1+w2+w3+w4+w5+w6
+barcelona.new$given.w <- w1*barcelona.new$host_is_superhost+w2*barcelona.new$distance+
+  w3*barcelona.new$amenities.length.standard+w4*barcelona.new$price.standard+
+  w5*barcelona.new$cancellation.standard+w6*barcelona.new$accommodates.stardand
+max(barcelona.new$given.w)
+min(barcelona.new$given.w)
+recommend.given <- head(barcelona.new[order(barcelona.new$given.w,decreasing=T),],10)
+cbind(recommend.given$id,recommend.given$longitude,recommend.given$latitude,recommend.given$name)
+write.csv(recommend.given, file = "/Users/yuetongyang/Downloads/R project/barcelona rec.csv")
+bar1<-select(recommend.equal,id,longitude,latitude)
+write.csv(bar1, file = "/Users/yuetongyang/Downloads/R project/barcelonaequal.csv")
+recommend.give$id<-as.factor(recommend.give$id)
+ggplot(recommend.given, aes(x=as.factor(id),y=given.w)) + 
+  geom_bar(stat="identity", width=0.8, fill="#E69F00")+
+  geom_text(aes(label=round(given.w, digits=2)),position=position_dodge(width=0.8))+
+  theme1+
+  theme(axis.text.x=element_text(angle=45,hjust = 1,size=9),
+        title=element_text(size=10),
+        axis.title.x=element_text(size=10),
+        axis.title.y=element_text(size=10),
+        axis.text.y=element_text(size=10))+
+  labs(x="home-stay",y="recommendated degree",
+       title = "Barcelona")+
+coord_flip()
+library(geosphere)
+library(stringr)
+library(dplyr)
+ny <- read.csv("/Users/yuetongyang/Downloads/R project/NewYork.csv",header = TRUE,stringsAsFactors=FALSE)
+ny.new <- select(ny,id,name,host_is_superhost,longitude,latitude,accommodates,amenities,price,cancellation_policy)
+ny.new$longitude <- abs(ny.new$longitude)
+## Statue of Liberty National Monument: 40.6892° N, 74.0445° W
+lat1 <- 40.6892
+lon1 <- 74.0445
+ny.new$D1 <- numeric(length(ny.new$id))
+for (i in 1:length(ny.new$id)){
+  ny.new$D1[i] <- distm (c(lon1, lat1),c(ny.new$longitude[i],ny.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Central Park :  40.7829° N, 73.9654° W
+lat1 <- 40.7829
+lon1 <- 73.9654
+ny.new$D2 <- numeric(length(ny.new$id))
+for (i in 1:length(ny.new$id)){
+  ny.new$D2[i] <- distm (c(lon1, lat1),c(ny.new$longitude[i],ny.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Times Square :40.7580° N, 73.9855° W
+lat1 <- 40.7580
+lon1 <- 73.9855
+ny.new$D3 <- numeric(length(ny.new$id))
+for (i in 1:length(ny.new$id)){
+  ny.new$D3[i] <- distm (c(lon1, lat1),c(ny.new$longitude[i],ny.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Rockefeller Center 40.7587° N, 73.9787° W
+lat1 <- 40.7587
+lon1 <- 73.9787
+ny.new$D4 <- numeric(length(ny.new$id))
+for (i in 1:length(ny.new$id)){
+  ny.new$D4[i] <- distm (c(lon1, lat1),c(ny.new$longitude[i],ny.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Brooklyn Bridge 40.7061° N, 73.9969° W
+lat1 <- 40.7061
+lon1 <- 73.9969
+ny.new$D5 <- numeric(length(ny.new$id))
+for (i in 1:length(ny.new$id)){
+  ny.new$D5[i] <- distm (c(lon1, lat1),c(ny.new$longitude[i],ny.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## calculate average distance
+## bound 1.5mile
+ny.new$average.d <- (ny.new$D1+ny.new$D2+ny.new$D3+ny.new$D4+ny.new$D5)/5
+ny.new$distance <- ifelse(ny.new$average.d<=1.5,1,0)
+
+## superhost
+ny.new$host_is_superhost <- ifelse(ny.new$host_is_superhost=="t",1,0)
+
+## standard length of amenities
+## longer better
+ny.new$amenities.length <- str_length(ny.new$amenities)
+Min <- min(ny.new$amenities.length)
+Max <- max(ny.new$amenities.length)
+ny.new$amenities.length.standard <- (ny.new$amenities.length-Min)/(Max-Min)
+
+## standard price
+## cheaper better
+ny.new$price <- as.numeric(gsub('[$,]', '', ny.new$price))
+Min.p <- min(ny.new$price)
+Max.p <- max(ny.new$price)
+ny.new$price.standard <- (Max.p-ny.new$price)/(Max.p-Min.p)
+## cancellation_policy
+## super_strict_60=1, super_strict_30=2, strict_14_with_grace_period=3,
+## moderate=4, flexible=5
+cancellation <- unique(ny.new$cancellation_policy)
+
+for (i in 1:length(ny.new$id)){
+  if (as.character(ny.new$cancellation_policy[i])=='super_strict_60'){
+    ny.new$cancellation[i] <- 1
+  }
+  if (as.character(ny.new$cancellation_policy[i])=='super_strict_30'){
+    ny.new$cancellation[i] <- 2
+  }
+  if (as.character(ny.new$cancellation_policy[i])=='strict_14_with_grace_period'){
+    ny.new$cancellation[i] <- 3
+  }
+  if (as.character(ny.new$cancellation_policy[i])=='strict'){
+    ny.new$cancellation[i] <- 4
+  }
+  if (as.character(ny.new$cancellation_policy[i])=='moderate'){
+    ny.new$cancellation[i] <- 5
+  }
+  if (as.character(ny.new$cancellation_policy[i])=='flexible'){
+    ny.new$cancellation[i] <- 6
+  }
+  
+}
+
+## standard cancellation_policy
+## higher better
+unique(ny.new$cancellation_policy)
+ny.new$cancellation<-as.numeric(ny.new$cancellation)
+unique(ny.new$cancellation)
+Min.c <- min(ny.new$cancellation)
+Max.c <- max(ny.new$cancellation)
+ny.new$cancellation.standard <- (ny.new$cancellation-Min.c)/(Max.c-Min.c)
+
+## accommodates 
+unique(ny.new$accommodates)
+mean(ny.new$accommodates)
+median(ny.new$accommodates)
+## >3=0   <=3=1   different from each city  
+for (i in 1:length(ny.new$id)){
+  if (ny.new$accommodates[i]<=3){
+    ny.new$accommodates.stardand[i]=1
+  }
+  if (ny.new$accommodates[i]>3){
+    ny.new$accommodates.stardand[i]=0
+  }
+}
+
+## equal weight
+ny.new$equal.w <- (ny.new$host_is_superhost+ny.new$distance+
+                     ny.new$amenities.length.standard+ny.new$price.standard+
+                     ny.new$cancellation.standard+ny.new$accommodates.stardand)/6
+max(ny.new$equal.w)
+min(ny.new$equal.w)
+recommend.equal <- head(ny.new[order(ny.new$equal.w,decreasing=T),],10)
+
+cbind(recommend.equal$id,recommend.equal$longitude,recommend.equal$latitude,recommend.equal$name)
+
+## given weight, given by ourselves
+w1 <- 0.10  ## ny.new$host_is_superhost
+w2 <- 0.30  ## ny.new$distance
+w3 <- 0.25  ## ny.new$amenities.length.standard
+w4 <- 0.20 ## ny.new$price.standard
+w5 <- 0.10 ## ny.new$cancellation.standard
+w6 <- 0.05 ## ny.new$accommodates.stardand
+w1+w2+w3+w4+w5+w6
+ny.new$given.w <- w1*ny.new$host_is_superhost+w2*ny.new$distance+
+  w3*ny.new$amenities.length.standard+w4*ny.new$price.standard+
+  w5*ny.new$cancellation.standard+w6*ny.new$accommodates.stardand
+max(ny.new$given.w)
+min(ny.new$given.w)
+recommend.given <- head(ny.new[order(ny.new$given.w,decreasing=T),],10)
+cbind(recommend.given$id,recommend.given$longitude,recommend.given$latitude,recommend.given$name)
+write.csv(recommend.given, file = "/Users/yuetongyang/Downloads/R project/newyork rec.csv")
+ny1<-select(recommend.equal,id,longitude,latitude)
+write.csv(ny1, file = "/Users/yuetongyang/Downloads/R project/newyorkequal.csv")
+ggplot(recommend.given, aes(x=as.factor(id),y=given.w)) + 
+  geom_bar(stat="identity", width=0.8, fill="#999999")+
+  geom_text(aes(label=round(given.w, digits=2),col='red'),position=position_dodge(width=0.8))+
+  theme1+
+  theme(axis.text.x=element_text(angle=45,hjust = 1,size=9),
+        title=element_text(size=10),
+        axis.title.x=element_text(size=10),
+        axis.title.y=element_text(size=10),
+        axis.text.y=element_text(size=10))+
+  labs(x="home-stay",y="recommendated degree",
+       title = "NewYork")+
+  coord_flip()
+install.packages("geosphere")
+library(geosphere)
+library(stringr)
+library(dplyr)
+amsterdam <- read.csv("/Users/dorothy/Downloads/Amsterdam1.csv",header = TRUE,stringsAsFactors=FALSE)
+amsterdam.new <- select(amsterdam,id,host_is_superhost,longitude,latitude,accommodates,amenities,price,cancellation_policy)
+
+## Rijksmuseum : 52.359875. 4.885058
+lat1 <- 52.359875
+lon1 <- 4.885058
+amsterdam.new$D1 <- numeric(length(amsterdam.new$id))
+for (i in 1:length(amsterdam.new$id)){
+  amsterdam.new$D1[i] <- distm (c(lon1, lat1),c(amsterdam.new$longitude[i],amsterdam.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Dam Square :  52.373°N 4.893°E
+lat1 <- 52.373
+lon1 <- 4.893
+amsterdam.new$D2 <- numeric(length(amsterdam.new$id))
+for (i in 1:length(amsterdam.new$id)){
+  amsterdam.new$D2[i] <- distm (c(lon1, lat1),c(amsterdam.new$longitude[i],amsterdam.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Rembrandt House Museum :52.3694° N, 4.9012° E
+lat1 <- 52.3694
+lon1 <- 4.9012
+amsterdam.new$D3 <- numeric(length(amsterdam.new$id))
+for (i in 1:length(amsterdam.new$id)){
+  amsterdam.new$D3[i] <- distm (c(lon1, lat1),c(amsterdam.new$longitude[i],amsterdam.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## The Begijnhof 52.3696° N, 4.8901° E
+lat1 <- 52.3696
+lon1 <- 4.8901
+amsterdam.new$D4 <- numeric(length(amsterdam.new$id))
+for (i in 1:length(amsterdam.new$id)){
+  amsterdam.new$D4[i] <- distm (c(lon1, lat1),c(amsterdam.new$longitude[i],amsterdam.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## vondelpark 52.3580° N, 4.8686° E
+lat1 <- 52.3580
+lon1 <- 4.8686
+amsterdam.new$D5 <- numeric(length(amsterdam.new$id))
+for (i in 1:length(amsterdam.new$id)){
+  amsterdam.new$D5[i] <- distm (c(lon1, lat1),c(amsterdam.new$longitude[i],amsterdam.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## calculate average distance
+## bound 1.5mile
+amsterdam.new$average.d <- (amsterdam.new$D1+amsterdam.new$D2+amsterdam.new$D3+amsterdam.new$D4+amsterdam.new$D5)/5
+amsterdam.new$distance <- ifelse(amsterdam.new$average.d<=1.5,1,0)
+
+## superhost
+amsterdam.new$host_is_superhost <- ifelse(amsterdam.new$host_is_superhost=="t",1,0)
+
+## standard length of amenities
+## longer better
+amsterdam.new$amenities.length <- str_length(amsterdam.new$amenities)
+Min <- min(amsterdam.new$amenities.length)
+Max <- max(amsterdam.new$amenities.length)
+amsterdam.new$amenities.length.standard <- (amsterdam.new$amenities.length-Min)/(Max-Min)
+
+## standard price
+## cheaper better
+amsterdam.new$price <- as.numeric(gsub('[$,]', '', amsterdam.new$price))
+Min.p <- min(amsterdam.new$price)
+Max.p <- max(amsterdam.new$price)
+amsterdam.new$price.standard <- (Max.p-amsterdam.new$price)/(Max.p-Min.p)
+
+## cancellation_policy
+## super_strict_60=1, super_strict_30=2, strict_14_with_grace_period=3,
+## moderate=4, flexible=5
+cancellation <- unique(amsterdam.new$cancellation_policy)
+for (i in 1:length(amsterdam.new$id)){
+  if (as.character(amsterdam.new$cancellation_policy[i])=='super_strict_60'){
+    amsterdam.new$cancellation[i] <- 1
+  }
+  if (as.character(amsterdam.new$cancellation_policy[i])=='super_strict_30'){
+    amsterdam.new$cancellation[i] <- 2
+  }
+  if (as.character(amsterdam.new$cancellation_policy[i])=='strict_14_with_grace_period'){
+    amsterdam.new$cancellation[i] <- 3
+  }
+  if (as.character(amsterdam.new$cancellation_policy[i])=='moderate'){
+    amsterdam.new$cancellation[i] <- 4
+  }
+  if (as.character(amsterdam.new$cancellation_policy[i])=='flexible'){
+    amsterdam.new$cancellation[i] <- 5
+  }
+}
+
+## standard cancellation_policy
+## higher better
+Min.c <- min(as.numeric(amsterdam.new$cancellation))
+Max.c <- max(as.numeric(amsterdam.new$cancellation))
+amsterdam.new$cancellation.standard <- (as.numeric(amsterdam.new$cancellation)-Min.c)/(Max.c-Min.c)
+
+## accommodates 
+unique(amsterdam.new$accommodates)
+mean(amsterdam.new$accommodates)
+median(amsterdam.new$accommodates)
+## >3=0   <=3=1   different from each city  
+for (i in 1:length(amsterdam.new$id)){
+  if (amsterdam.new$accommodates[i]<=3){
+    amsterdam.new$accommodates.stardand[i]=1
+  }
+  if (amsterdam.new$accommodates[i]>3){
+    amsterdam.new$accommodates.stardand[i]=0
+  }
+}
+
+
+## equal weight
+amsterdam.new$equal.w = (amsterdam.new$host_is_superhost+amsterdam.new$distance+
+                           amsterdam.new$amenities.length.standard+amsterdam.new$price.standard+
+                           amsterdam.new$cancellation.standard+amsterdam.new$accommodates.stardand)/6
+max(amsterdam.new$equal.w)
+min(amsterdam.new$equal.w)
+recommend.equal <- head(amsterdam.new[order(amsterdam.new$equal.w,decreasing=T),],10)
+cbind(recommend.equal$id,recommend.equal$longitude,recommend.equal$latitude)
+
+## given weight, given by ourselves
+w1 <- 0.10  ## amsterdam.new$host_is_superhost
+w2 <- 0.30  ## amsterdam.new$distance
+w3 <- 0.25  ## amsterdam.new$amenities.length.standard
+w4 <- 0.20 ## amsterdam.new$price.standard
+w5 <- 0.10 ## amsterdam.new$cancellation.standard
+w6 <- 0.05 ## amsterdam.new$accommodates.stardand
+w1+w2+w3+w4+w5+w6
+amsterdam.new$given.w <- w1*amsterdam.new$host_is_superhost+w2*amsterdam.new$distance+
+  w3*amsterdam.new$amenities.length.standard+w4*amsterdam.new$price.standard+
+  w5*amsterdam.new$cancellation.standard+w6*amsterdam.new$accommodates.stardand
+max(amsterdam.new$given.w)
+min(amsterdam.new$given.w)
+recommend.given <- head(amsterdam.new[order(amsterdam.new$given.w,decreasing=T),],10)
+cbind(recommend.given$id,recommend.given$longitude,recommend.given$latitude)
+```
+```{r}
+library(geosphere)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+paris <- read.csv("/Users/yuetongyang/Downloads/R project/Paris.csv",header = TRUE,stringsAsFactors=FALSE)
+paris.new <- select(paris,id,name,host_is_superhost,longitude,latitude,accommodates,amenities,price,cancellation_policy)
+
+## Eiffel Tower : 48.8584. 2.2945
+lat1 <- 48.8584
+lon1 <- 2.2945
+paris.new$D1 <- numeric(length(paris.new$id))
+for (i in 1:length(paris.new$id)){
+  paris.new$D1[i] <- distm (c(lon1, lat1),c(paris.new$longitude[i],paris.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Louvre Musemu :  48.8606°N 2.3376°E
+lat1 <- 48.8606
+lon1 <- 2.3376
+paris.new$D2 <- numeric(length(paris.new$id))
+for (i in 1:length(paris.new$id)){
+  paris.new$D2[i] <- distm (c(lon1, lat1),c(paris.new$longitude[i],paris.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Cathedrale :48.8530° N, 2.3499° E
+lat1 <- 48.8530
+lon1 <- 2.3499
+paris.new$D3 <- numeric(length(paris.new$id))
+for (i in 1:length(paris.new$id)){
+  paris.new$D3[i] <- distm (c(lon1, lat1),c(paris.new$longitude[i],paris.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Arc de Triomphe 48.8738° N, 2.2950° E
+lat1 <- 48.8738
+lon1 <- 2.2950
+paris.new$D4 <- numeric(length(paris.new$id))
+for (i in 1:length(paris.new$id)){
+  paris.new$D4[i] <- distm (c(lon1, lat1),c(paris.new$longitude[i],paris.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Sacré-Cœur 48.8867° N, 2.3431° E
+lat1 <- 48.8867
+lon1 <- 2.3431
+paris.new$D5 <- numeric(length(paris.new$id))
+for (i in 1:length(paris.new$id)){
+  paris.new$D5[i] <- distm (c(lon1, lat1),c(paris.new$longitude[i],paris.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## calculate average distance
+## bound 1.5mile
+paris.new$average.d <- (paris.new$D1+paris.new$D2+paris.new$D3+paris.new$D4+paris.new$D5)/5
+paris.new$distance <- ifelse(paris.new$average.d<=1.5,1,0)
+
+## superhost
+paris.new$host_is_superhost <- ifelse(paris.new$host_is_superhost=="t",1,0)
+
+## standard length of amenities
+## longer better
+paris.new$amenities.length <- str_length(paris.new$amenities)
+Min <- min(paris.new$amenities.length)
+Max <- max(paris.new$amenities.length)
+paris.new$amenities.length.standard <- (paris.new$amenities.length-Min)/(Max-Min)
+
+## standard price
+## cheaper better
+paris.new$price <- as.numeric(gsub('[$,]', '', paris.new$price))
+Min.p <- min(paris.new$price)
+Max.p <- max(paris.new$price)
+paris.new$price.standard <- (Max.p-paris.new$price)/(Max.p-Min.p)
+## cancellation_policy
+## super_strict_60=1, super_strict_30=2, strict_14_with_grace_period=3,
+## moderate=4, flexible=5
+cancellation <- unique(paris.new$cancellation_policy)
+
+for (i in 1:length(paris.new$id)){
+  if (as.character(paris.new$cancellation_policy[i])=='luxury_super_strict_95'){
+    paris.new$cancellation[i] <- 1
+  }
+  if (as.character(paris.new$cancellation_policy[i])=='super_strict_60'){
+    paris.new$cancellation[i] <- 2
+  }
+  if (as.character(paris.new$cancellation_policy[i])=='super_strict_30'){
+    paris.new$cancellation[i] <- 3
+  }
+  if (as.character(paris.new$cancellation_policy[i])=='strict_14_with_grace_period'){
+    paris.new$cancellation[i] <- 4
+  }
+  if (as.character(paris.new$cancellation_policy[i])=='strict'){
+    paris.new$cancellation[i] <- 5
+  }
+  if (as.character(paris.new$cancellation_policy[i])=='moderate'){
+    paris.new$cancellation[i] <- 6
+  }
+  if (as.character(paris.new$cancellation_policy[i])=='flexible'){
+    paris.new$cancellation[i] <- 7
+  }
+}
+
+## standard cancellation_policy
+## higher better
+unique(paris.new$cancellation_policy)
+paris.new$cancellation<-as.numeric(paris.new$cancellation)
+unique(paris.new$cancellation)
+Min.c <- min(paris.new$cancellation)
+Max.c <- max(paris.new$cancellation)
+paris.new$cancellation.standard <- (paris.new$cancellation-Min.c)/(Max.c-Min.c)
+
+## accommodates 
+unique(paris.new$accommodates)
+mean(paris.new$accommodates)
+median(paris.new$accommodates)
+## >3=0   <=3=1   different from each city  
+for (i in 1:length(paris.new$id)){
+  if (paris.new$accommodates[i]<=3){
+    paris.new$accommodates.stardand[i]=1
+  }
+  if (paris.new$accommodates[i]>3){
+    paris.new$accommodates.stardand[i]=0
+  }
+}
+
+
+## equal weight
+paris.new$equal.w <- (paris.new$host_is_superhost+paris.new$distance+
+                        paris.new$amenities.length.standard+paris.new$price.standard+
+                        paris.new$cancellation.standard+paris.new$accommodates.stardand)/6
+max(paris.new$equal.w)
+min(paris.new$equal.w)
+recommend.equal <- head(paris.new[order(paris.new$equal.w,decreasing=T),],10)
+cbind(recommend.equal$id,recommend.equal$longitude,recommend.equal$latitude,recommend.equal$name)
+
+## given weight, given by ourselves
+w1 <- 0.10  ## paris.new$host_is_superhost
+w2 <- 0.30  ## paris.new$distance
+w3 <- 0.25  ## paris.new$amenities.length.standard
+w4 <- 0.20 ## paris.new$price.standard
+w5 <- 0.10 ## paris.new$cancellation.standard
+w6 <- 0.05 ## paris.new$accommodates.stardand
+w1+w2+w3+w4+w5+w6
+paris.new$given.w <- w1*paris.new$host_is_superhost+w2*paris.new$distance+
+  w3*paris.new$amenities.length.standard+w4*paris.new$price.standard+
+  w5*paris.new$cancellation.standard+w6*paris.new$accommodates.stardand
+max(paris.new$given.w)
+min(paris.new$given.w)
+recommend.given <- head(paris.new[order(paris.new$given.w,decreasing=T),],10)
+cbind(recommend.given$id,recommend.given$longitude,recommend.given$name)
+write.csv(recommend.given, file = "/Users/yuetongyang/Downloads/R project/paris rec.csv")
+paris1<-select(recommend.equal,id,longitude,latitude)
+write.csv(paris1, file = "/Users/yuetongyang/Downloads/R project/parisequal.csv")
+
+
+ggplot(recommend.given, aes(x=as.factor(id),y=given.w)) + 
+  geom_bar(stat="identity", width=0.8, fill="#CC79A7")+
+  geom_text(aes(label=round(given.w, digits=2)),position=position_dodge(width=0.8))+
+  theme1+
+  theme(axis.text.x=element_text(angle=45,hjust = 1,size=9),
+        title=element_text(size=10),
+        axis.title.x=element_text(size=10),
+        axis.title.y=element_text(size=10),
+        axis.text.y=element_text(size=10))+
+  labs(x="home-stay",y="recommendated degree",
+       title = "Paris")+
+  coord_flip()
+
+hist(recommend.given$given.w)
+
+library(geosphere)
+library(stringr)
+library(dplyr)
+london <- read.csv("/Users/yuetongyang/Downloads/R project/London.csv",header = TRUE,stringsAsFactors=FALSE)
+london.new <- select(london,id,name,host_is_superhost,longitude,latitude,accommodates,amenities,price,cancellation_policy)
+london.new$longitude <- abs(london.new$longitude)
+## Big Ben : 51.5007° N, 0.1246° W
+lat1 <- 51.5007
+lon1 <- 0.1246
+london.new$D1 <- numeric(length(london.new$id))
+for (i in 1:length(london.new$id)){
+  london.new$D1[i] <- distm (c(lon1, lat1),c(london.new$longitude[i],london.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Coca-Cola London Eye :  51.5033° N, 0.1195° W
+lat1 <- 51.5033
+lon1 <- 0.1195
+london.new$D2 <- numeric(length(london.new$id))
+for (i in 1:length(london.new$id)){
+  london.new$D2[i] <- distm (c(lon1, lat1),c(london.new$longitude[i],london.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Tower of London :51.5081° N, 0.0759° W
+lat1 <- 51.5081
+lon1 <- 0.0759
+london.new$D3 <- numeric(length(london.new$id))
+for (i in 1:length(london.new$id)){
+  london.new$D3[i] <- distm (c(lon1, lat1),c(london.new$longitude[i],london.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Tower Bridge 51.5055° N, 0.0754° W
+lat1 <- 51.5055
+lon1 <- 0.0754
+london.new$D4 <- numeric(length(london.new$id))
+for (i in 1:length(london.new$id)){
+  london.new$D4[i] <- distm (c(lon1, lat1),c(london.new$longitude[i],london.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## Buckingham Palace 51.5014° N, 0.1419° W
+lat1 <- 51.5014
+lon1 <- 0.1419
+london.new$D5 <- numeric(length(london.new$id))
+for (i in 1:length(london.new$id)){
+  london.new$D5[i] <- distm (c(lon1, lat1),c(london.new$longitude[i],london.new$latitude[i]),fun = distHaversine)/ 1609
+}
+
+## calculate average distance
+## bound 1.5mile
+london.new$average.d <- (london.new$D1+london.new$D2+london.new$D3+london.new$D4+london.new$D5)/5
+london.new$distance <- ifelse(london.new$average.d<=1.5,1,0)
+
+## superhost
+london.new$host_is_superhost <- ifelse(london.new$host_is_superhost=="t",1,0)
+
+## standard length of amenities
+## longer better
+london.new$amenities.length <- str_length(london.new$amenities)
+Min <- min(london.new$amenities.length)
+Max <- max(london.new$amenities.length)
+london.new$amenities.length.standard <- (london.new$amenities.length-Min)/(Max-Min)
+
+## standard price
+## cheaper better
+london.new$price <- as.numeric(gsub('[$,]', '', london.new$price))
+Min.p <- min(london.new$price)
+Max.p <- max(london.new$price)
+london.new$price.standard <- (Max.p-london.new$price)/(Max.p-Min.p)
+## cancellation_policy
+## super_strict_60=1, super_strict_30=2, strict_14_with_grace_period=3,
+## moderate=4, flexible=5
+cancellation <- unique(london.new$cancellation_policy)
+
+for (i in 1:length(london.new$id)){
+  if (as.character(london.new$cancellation_policy[i])=='luxury_super_strict_95'){
+    london.new$cancellation[i] <- 1
+  }
+  if (as.character(london.new$cancellation_policy[i])=='super_strict_60'){
+    london.new$cancellation[i] <- 2
+  }
+  if (as.character(london.new$cancellation_policy[i])=='super_strict_30'){
+    london.new$cancellation[i] <- 3
+  }
+  if (as.character(london.new$cancellation_policy[i])=='strict_14_with_grace_period'){
+    london.new$cancellation[i] <- 4
+  }
+  if (as.character(london.new$cancellation_policy[i])=='strict'){
+    london.new$cancellation[i] <- 5
+  }
+  if (as.character(london.new$cancellation_policy[i])=='moderate'){
+    london.new$cancellation[i] <- 6
+  }
+  if (as.character(london.new$cancellation_policy[i])=='flexible'){
+    london.new$cancellation[i] <- 7
+  }
+  if (as.character(london.new$cancellation_policy[i])=='luxury_moderate'){
+    london.new$cancellation[i] <- 8
+  }
+}
+
+## standard cancellation_policy
+## higher better
+unique(london.new$cancellation_policy)
+london.new$cancellation<-as.numeric(london.new$cancellation)
+unique(london.new$cancellation)
+Min.c <- min(london.new$cancellation)
+Max.c <- max(london.new$cancellation)
+london.new$cancellation.standard <- (london.new$cancellation-Min.c)/(Max.c-Min.c)
+
+## accommodates 
+unique(london.new$accommodates)
+mean(london.new$accommodates)
+median(london.new$accommodates)
+## >3=0   <=3=1   different from each city  
+for (i in 1:length(london.new$id)){
+  if (london.new$accommodates[i]<=3){
+    london.new$accommodates.stardand[i]=1
+  }
+  if (london.new$accommodates[i]>3){
+    london.new$accommodates.stardand[i]=0
+  }
+}
+
+
+
+## equal weight
+london.new$equal.w <- (london.new$host_is_superhost+london.new$distance+
+                         london.new$amenities.length.standard+london.new$price.standard+
+                         london.new$cancellation.standard+london.new$accommodates.stardand)/6
+max(london.new$equal.w)
+min(london.new$equal.w)
+recommend.equal <- head(london.new[order(london.new$equal.w,decreasing=T),],10)
+
+cbind(recommend.equal$id,recommend.equal$longitude,recommend.equal$latitude,recommend.equal$name)
+
+## given weight, given by ourselves
+w1 <- 0.10  ## london.new$host_is_superhost
+w2 <- 0.30  ## london.new$distance
+w3 <- 0.25  ## london.new$amenities.length.standard
+w4 <- 0.20 ## london.new$price.standard
+w5 <- 0.10 ## london.new$cancellation.standard
+w6 <- 0.05 ## london.new$accommodates.stardand
+w1+w2+w3+w4+w5+w6
+london.new$given.w <- w1*london.new$host_is_superhost+w2*london.new$distance+
+  w3*london.new$amenities.length.standard+w4*london.new$price.standard+
+  w5*london.new$cancellation.standard+w6*london.new$accommodates.stardand
+max(london.new$given.w)
+min(london.new$given.w)
+recommend.given <- head(london.new[order(london.new$given.w,decreasing=T),],10)
+cbind(recommend.given$id,recommend.given$longitude,recommend.given$latitude,recommend.given$name)
+write.csv(recommend.given, file = "/Users/yuetongyang/Downloads/R project/london rec.csv")
+london1<-select(recommend.equal,id,longitude,latitude)
+write.csv(london1, file = "/Users/yuetongyang/Downloads/R project/londonequal.csv")
+
+ggplot(recommend.given, aes(x=as.factor(id),y=given.w)) + 
+  geom_bar(stat="identity", width=0.8, fill="#009E73")+
+  geom_text(aes(label=round(given.w, digits=2)),position=position_dodge(width=0.8))+
+  theme1+
+  theme(axis.text.x=element_text(angle=45,hjust = 1,size=9),
+        title=element_text(size=10),
+        axis.title.x=element_text(size=10),
+        axis.title.y=element_text(size=10),
+        axis.text.y=element_text(size=10))+
+  labs(x="home-stay",y="recommendated degree",
+       title = "London")+
+  coord_flip()
+```
+
+
+
+
+
+
